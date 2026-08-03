@@ -1,0 +1,22 @@
+{
+  "name": "dockerhub-keepalive-web",
+  "version": "0.1.0",
+  "description": "Docker Hub 镜像保活工具 —— WebUI 前端（Vue 3 + Vite）",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pinia": "^4.0.2",
+    "qrcode": "^1.5.4",
+    "vue": "^3.5.40",
+    "vue-router": "^5.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.8",
+    "vite": "^8.2.0"
+  }
+}

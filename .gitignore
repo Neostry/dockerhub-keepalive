@@ -1,0 +1,18 @@
+# 依赖与构建
+node_modules/
+dist/
+*.log
+
+# 敏感信息（部署 Secret 等，禁止入库）
+.env
+.env.*
+!.env.example
+
+# 本地临时/产物
+.tmp/
+outputs/
+.playwright-mcp/
+.reasonix/
+
+# 本地环境配置（含本机路径，不公开）
+reasonix.toml

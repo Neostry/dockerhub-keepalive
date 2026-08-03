@@ -1,0 +1,70 @@
+# =============================================================================
+# docker-compose.yml —— dockerhub-keepalive（Docker Hub 镜像保活工具）
+# 依据：系统架构设计_Architecture.md 第 6 节 部署视图
+#
+# 快速开始：
+#   1. 复制 configs/.env.example 为 .env，填写必填项 APP_SECRET_KEY
+#      （生成命令：openssl rand -hex 32）
+#   2. docker compose up -d
+#
+# 权限说明（架构要求，仅限可信 VPS）：
+#   - /var/run/docker.sock（rw）  ：经宿主 Docker Engine 执行 pull/rmi/prune
+#   - /:/host（ro）               ：空间预检 fs.statfs 读取宿主磁盘统计
+#   - dockerhub-keepalive-data    ：SQLite 数据卷（/data/app.db）持久化
+# =============================================================================
+
+services:
+  dockerhub-keepalive:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dockerhub-keepalive:0.1.0
+    container_name: dockerhub-keepalive
+    restart: unless-stopped
+    ports:
+      # WEB_PORT 全链路可配（容器内监听 + 宿主端口映射，默认 8080）
+      - "${WEB_PORT:-8080}:${WEB_PORT:-8080}"
+    volumes:
+      # 操作宿主 Docker（必须 rw）
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 宿主根只读挂载，供空间预检 statfs（保持 ro，禁止写宿主）
+      - /:/host:ro
+      # SQLite 数据卷（任务/账号/日志/通知持久化）
+      - dockerhub-keepalive-data:/data
+    environment:
+      # 主密钥必填：缺失时 compose 插值直接报错（fail-fast），生成命令 openssl rand -hex 32
+      APP_SECRET_KEY: "${APP_SECRET_KEY:?APP_SECRET_KEY 必填，生成命令：openssl rand -hex 32}"
+      # cron 时区（默认 UTC，建议 Asia/Shanghai）
+      TZ: "${TZ:-Asia/Shanghai}"
+      # 监听端口（保持与 ports 右侧一致）
+      WEB_PORT: "${WEB_PORT:-8080}"
+      # 反向代理场景（如 Cloudflare Access 前置）置 1：信任 X-Forwarded-For 取真实 IP
+      TRUST_PROXY: "${TRUST_PROXY:-0}"
+      # HTTPS 反向代理场景置 1：会话 Cookie 加 Secure 标志
+      COOKIE_SECURE: "${COOKIE_SECURE:-0}"
+      # 登录失败阈值 / 锁定分钟数（防暴力破解）
+      LOGIN_MAX_FAILURES: "${LOGIN_MAX_FAILURES:-5}"
+      LOGIN_LOCK_MINUTES: "${LOGIN_LOCK_MINUTES:-15}"
+      # 会话有效期（天）
+      SESSION_TTL_DAYS: "${SESSION_TTL_DAYS:-30}"
+      # 用户名扫描仓库上限（0=不限） / 单仓库拉取 tag 上限（0=全部）
+      MAX_REPOS_SCAN: "${MAX_REPOS_SCAN:-50}"
+      MAX_TAGS_PER_REPO: "${MAX_TAGS_PER_REPO:-20}"
+      # pull/rmi 与通知重试次数 / 空间预检余量系数
+      PULL_RETRIES: "${PULL_RETRIES:-3}"
+      NOTIFY_RETRIES: "${NOTIFY_RETRIES:-3}"
+      SPACE_HEADROOM: "${SPACE_HEADROOM:-1.1}"
+      # 挂载点与路径（与上方 volumes 对应，一般无需修改）
+      HOST_MOUNT: /host
+      DOCKER_SOCKET: /var/run/docker.sock
+      DB_PATH: /data/app.db
+    healthcheck:
+      # 容器内自检 /api/health（端口随 WEB_PORT 自适应，不校验登录）
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+(process.env.WEB_PORT||8080)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  dockerhub-keepalive-data:

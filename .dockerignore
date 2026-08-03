@@ -1,0 +1,20 @@
+# 构建上下文排除：控制体积与敏感信息
+.git
+.gitignore
+node_modules
+src/web/node_modules
+.tmp
+outputs
+assets
+docs
+configs
+scripts
+tests
+Dockerfile
+docker-compose.yml
+.dockerignore
+.env
+.env.*
+!.env.example
+*.md
+LICENSE
