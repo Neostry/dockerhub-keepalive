@@ -49,4 +49,4 @@
 
 - 待定（以社区反馈为准；PRD「暂不做什么」边界内的多用户/私有仓库/统计面板等暂不承诺）
 
-[1.0.0]: 待仓库发布后补充 tag 链接
+[1.0.0]: https://github.com/Neostry/dockerhub-keepalive/releases/tag/v1.0.0

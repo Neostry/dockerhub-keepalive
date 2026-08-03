@@ -4,7 +4,8 @@
 > 功能描述以 PRD 与系统架构设计为准；详见 [项目说明书](docs/01_产品/项目说明书_Project_Overview.md)。
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
-<!-- 徽章占位（发布后补充）：Docker Hub 镜像拉取数（https://img.shields.io/docker/pulls/<namespace>/dockerhub-keepalive）、GitHub Release、Stars -->
+[![Docker Pulls](https://img.shields.io/docker/pulls/neostry/dockerhub-keepalive)](https://hub.docker.com/r/neostry/dockerhub-keepalive)
+<!-- 徽章占位（仓库转公开后补充）：GitHub Release / Stars / Forks（私有仓库 shields.io 无法读取） -->
 
 自动维护你的 Docker Hub 镜像：定期 pull 保活，防止镜像因 **90 天未拉取被 Docker Hub 下架**。带 WebUI，部署在 VPS 上，配置一次后**零人工干预**。
 
@@ -38,7 +39,7 @@ Docker Hub 对 **90 天内无人 pull 的镜像**存在下架风险。许多开�
 ### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/<your-name>/dockerhub-keepalive.git
+git clone https://github.com/Neostry/dockerhub-keepalive.git
 cd dockerhub-keepalive
 ```
 
