@@ -51,7 +51,28 @@ const mockDocker = {
 
 const mockHub = {
   async listTags(repo, { limit } = {}) {
-    return [{ name: 'v1', full_size: 1000, last_updated: '2026-01-01T00:00:00Z' }].slice(0, limit || 1);
+    // F9 测试用：不同 repo 返回不同 tag 列表（与真实 listTags 一样按 last_updated 降序）
+    let tags;
+    if (repo === 'user/multi-tags') {
+      // 无 latest → 按 last_updated 取最新
+      tags = [
+        { name: 'v1.0', full_size: 1000, last_updated: '2026-01-01T00:00:00Z' },
+        { name: 'v2.0', full_size: 1200, last_updated: '2026-06-01T00:00:00Z' },
+        { name: 'v3.0', full_size: 1400, last_updated: '2026-08-01T00:00:00Z' },
+      ];
+    } else if (repo === 'user/with-latest') {
+      // 有 latest 但不在第一个
+      tags = [
+        { name: 'v1.0', full_size: 1000, last_updated: '2026-01-01T00:00:00Z' },
+        { name: 'latest', full_size: 2000, last_updated: '2026-08-01T00:00:00Z' },
+        { name: 'v2.0', full_size: 1500, last_updated: '2026-06-01T00:00:00Z' },
+      ];
+    } else {
+      tags = [{ name: 'v1', full_size: 1000, last_updated: '2026-01-01T00:00:00Z' }];
+    }
+    // 与真实 listTags 一致：按 last_updated 降序
+    tags.sort((a, b) => new Date(b.last_updated || 0) - new Date(a.last_updated || 0));
+    return tags.slice(0, limit || tags.length);
   },
   async scanUserRepos(username, { limit } = {}) {
     const repos = [
@@ -585,5 +606,74 @@ describe('模块 B：用户名扫描', () => {
     await agent8.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
     const res = await agent8.post('/api/scan/username').send({ username: 'UPPER' });
     assert.equal(res.status, 400);
+  });
+});
+
+describe('F9：仅拉最新 tag（username/未指定 tag）', () => {
+  test('用户名型任务：每个仓库仅拉最新 tag（latest 优先）', async () => {
+    const agentF = request.agent(app);
+    await agentF.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
+
+    // 创建 username 型任务，selected_repos 包含 user/with-latest（mock 返回含 latest 的 tag 列表）
+    const created = await agentF.post('/api/tasks').send({
+      name: 'F9 latest 优先', type: 'username', source: 'user', cron_expr: '0 3 1 * *',
+      selected_repos: [{ repo: 'user/with-latest', latest_tag: 'latest', storage_size: 2000 }],
+    });
+    assert.equal(created.status, 201);
+    const id = created.body.id;
+
+    dockerCalls.length = 0;
+    const run = await agentF.post(`/api/tasks/${id}/run`);
+    assert.equal(run.status, 202);
+    await new Promise((r) => setTimeout(r, 300));
+
+    // 只拉 1 个（latest），不拉 v1.0/v2.0
+    const pulls = dockerCalls.filter((c) => c[0] === 'pull');
+    assert.equal(pulls.length, 1, '应只拉 1 个 tag（latest 优先）');
+    assert.equal(pulls[0][1], 'user/with-latest:latest');
+  });
+
+  test('用户名型任务：无 latest 时取 last_updated 最新的 tag', async () => {
+    const agentF = request.agent(app);
+    await agentF.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
+
+    // 创建 username 型任务，selected_repos 包含 user/multi-tags（mock 返回 v1.0/v2.0/v3.0，无 latest）
+    const created = await agentF.post('/api/tasks').send({
+      name: 'F9 无 latest', type: 'username', source: 'user', cron_expr: '0 3 1 * *',
+      selected_repos: [{ repo: 'user/multi-tags', latest_tag: 'v3.0', storage_size: 1400 }],
+    });
+    assert.equal(created.status, 201);
+    const id = created.body.id;
+
+    dockerCalls.length = 0;
+    const run = await agentF.post(`/api/tasks/${id}/run`);
+    assert.equal(run.status, 202);
+    await new Promise((r) => setTimeout(r, 300));
+
+    // 只拉 1 个（v3.0，last_updated 最新）
+    const pulls = dockerCalls.filter((c) => c[0] === 'pull');
+    assert.equal(pulls.length, 1, '应只拉 1 个 tag（last_updated 最新）');
+    assert.equal(pulls[0][1], 'user/multi-tags:v3.0');
+  });
+
+  test('image 型未指定 tag：同样仅拉最新 tag', async () => {
+    const agentF = request.agent(app);
+    await agentF.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
+
+    // image 型但不带 tag（images 里只写 repo 名，无 :tag）→ 等同未指定 tag
+    const created = await agentF.post('/api/tasks').send({
+      name: 'F9 image 无 tag', type: 'image', source: 'custom', images: ['user/multi-tags'], cron_expr: '0 3 1 * *',
+    });
+    assert.equal(created.status, 201);
+    const id = created.body.id;
+
+    dockerCalls.length = 0;
+    const run = await agentF.post(`/api/tasks/${id}/run`);
+    assert.equal(run.status, 202);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const pulls = dockerCalls.filter((c) => c[0] === 'pull');
+    assert.equal(pulls.length, 1, 'image 型未指定 tag 应只拉最新');
+    assert.equal(pulls[0][1], 'user/multi-tags:v3.0');
   });
 });

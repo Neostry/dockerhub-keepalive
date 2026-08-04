@@ -76,17 +76,17 @@ export function createExecutor({ docker, dockerhub, sleep = notify.sleep } = {})
   async function buildPullTargets(task) {
     const targets = [];
     const failedMeta = [];
-    const maxTags = settings.getInt('max_tags_per_repo', config.maxTagsPerRepo);
     const images = task.images || [];
     for (const img of images) {
       if (task.type === 'username' || !img.tag) {
-        // 用户名任务 / 未指定 tag：列仓库全部 tag（取前 maxTags）
+        // F9: 用户名任务 / 未指定 tag：每个仓库仅拉最新 tag（latest 优先，否则取 last_updated 最新）
         try {
-          const tags = await dockerhub.listTags(img.repo, { limit: maxTags });
+          const tags = await dockerhub.listTags(img.repo, { limit: 100 });
           if (tags.length === 0) {
             targets.push({ repo: img.repo, tag: 'latest' });
           } else {
-            for (const t of tags) targets.push({ repo: img.repo, tag: t.name });
+            const latest = tags.find(t => t.name === 'latest') || tags[0];
+            targets.push({ repo: img.repo, tag: latest.name });
           }
         } catch (err) {
           // 列 tag 失败：降级拉 latest 并记录
