@@ -189,6 +189,7 @@ label.lbl{display:block;font-size:12.5px;color:var(--ink-2);margin:0 0 6px}
 .tag-ok{background:rgba(59,214,160,.14);color:var(--ok)}
 .tag-fail{background:rgba(242,114,123,.14);color:var(--err)}
 .tag-off{background:var(--panel-2);color:var(--ink-3)}
+.tag-run{background:rgba(62,195,240,.14);color:var(--accent)}
 .tag-scan{background:rgba(62,195,240,.12);color:var(--accent)}
 .tag-warn{background:rgba(245,185,74,.14);color:var(--warn)}
 .switch{position:relative;width:38px;height:22px;flex-shrink:0;display:inline-block;vertical-align:middle}

@@ -72,13 +72,14 @@ export function lastRunMeta(status) {
     case 'partial': return { text: '部分成功', cls: 'tag-warn' }
     case 'failed': return { text: '上次失败', cls: 'tag-fail' }
     case 'skipped': return { text: '已跳过', cls: 'tag-off' }
+    case 'running': return { text: '执行中', cls: 'tag-run' }
     default: return { text: '待执行', cls: 'tag-scan' }
   }
 }
 
 /** 日志状态 → 圆点类 */
 export function logStateCls(status) {
-  return { success: 'ok', partial: 'partial', failed: 'fail', skipped: 'skipped' }[status] || 'skipped'
+  return { success: 'ok', partial: 'partial', failed: 'fail', skipped: 'skipped', running: 'running' }[status] || 'skipped'
 }
 
 /** 触发方式文案 */

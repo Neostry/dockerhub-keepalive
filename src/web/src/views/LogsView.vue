@@ -117,6 +117,7 @@ function nextPage() { if (logs.page < totalPages()) { logs.page++; load() } }
         <option value="partial">部分成功</option>
         <option value="failed">失败</option>
         <option value="skipped">跳过</option>
+        <option value="running">执行中</option>
       </select>
       <button class="btn" @click="applyFilter">刷新</button>
     </div>

@@ -444,6 +444,45 @@ describe('模块 C：执行链路（mock docker）', () => {
     assert.equal(cleanup400.status, 400);
   });
 
+  test('执行失败（pull 失败）：日志 failed 且有完成字段与失败原因', async () => {
+    const agentY = request.agent(app);
+    await agentY.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
+    const created = await agentY.post('/api/tasks').send({
+      name: '失败任务', type: 'image', source: 'custom', images: ['test/fail-image:1.0'], cron_expr: '0 3 1 * *',
+    });
+    assert.equal(created.status, 201);
+    dockerCalls.length = 0;
+    const run = await agentY.post(`/api/tasks/${created.body.id}/run`);
+    assert.equal(run.status, 202);
+    // 等待队列异步执行完成
+    await new Promise((r) => setTimeout(r, 300));
+    const logs = await agentY.get('/api/logs');
+    const l = logs.body.items.find((x) => x.task_id === created.body.id);
+    assert.ok(l, '应有日志');
+    assert.equal(l.status, 'failed');
+    assert.equal(l.fail_count, 1);
+    assert.ok(l.finished_at, '应有结束时间（非初始 failed 残留）');
+    assert.equal(typeof l.duration_ms, 'number');
+    // 镜像失败项带原因（前端可展示）
+    const detail = await agentY.get(`/api/logs/${l.id}`);
+    const pullItem = detail.body.items.find((it) => it.action === 'pull');
+    assert.ok(pullItem && pullItem.status === 'failed');
+    assert.match(pullItem.message || '', /mock pull 失败/);
+  });
+
+  test('schema v2：execution_logs.status 支持 running 且外键完好', async () => {
+    const d = db();
+    const ddl = d.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='execution_logs'`).get().sql;
+    assert.match(ddl, /'running'/, 'CHECK 应包含 running');
+    // 插入 running 日志 + 子项（验证 v2 迁移后 FK 指向新表不报错）
+    const rid = d.prepare(`INSERT INTO execution_logs (task_id, trigger, status, started_at) VALUES (NULL, 'manual', 'running', ?)`).run(new Date().toISOString()).lastInsertRowid;
+    d.prepare(`INSERT INTO execution_log_items (log_id, repo, action, status) VALUES (?, 'lib/x', 'pull', 'success')`).run(rid);
+    const n = d.prepare(`SELECT COUNT(*) c FROM execution_log_items WHERE log_id = ?`).get(rid).c;
+    assert.equal(n, 1);
+    d.prepare(`DELETE FROM execution_log_items WHERE log_id = ?`).run(rid);
+    d.prepare(`DELETE FROM execution_logs WHERE id = ?`).run(rid);
+  });
+
   test('任务单飞锁：执行中重复触发返回 409', async () => {
     const agent4 = request.agent(app);
     await agent4.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });

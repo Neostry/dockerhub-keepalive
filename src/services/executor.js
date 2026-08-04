@@ -150,14 +150,7 @@ export function createExecutor({ docker, dockerhub, sleep = notify.sleep } = {})
 
   /* ---------------- 单任务执行 ---------------- */
 
-  async function executeTask(task, trigger) {
-    const logId = db()
-      .prepare(
-        `INSERT INTO execution_logs (task_id, trigger, status, started_at, total_images)
-         VALUES (?, ?, 'failed', ?, 0)`
-      )
-      .run(task.id, trigger, new Date().toISOString()).lastInsertRowid;
-
+  async function executeTaskInner(task, trigger, logId) {
     const estimated = task.estimated_size || 0;
     const available = hostAvailableBytes();
     const spaceCheck = {
@@ -245,6 +238,31 @@ export function createExecutor({ docker, dockerhub, sleep = notify.sleep } = {})
     const logRow = getLog(logId);
     notify.taskCompleted({ ...logRow, task_name: task.name });
     return logRow;
+  }
+
+  /* ---------------- 单任务执行（入口：初始 running + 异常兜底） ---------------- */
+
+  async function executeTask(task, trigger) {
+    const startedAt = new Date().toISOString();
+    const logId = db()
+      .prepare(
+        `INSERT INTO execution_logs (task_id, trigger, status, started_at, total_images)
+         VALUES (?, ?, 'running', ?, 0)`
+      )
+      .run(task.id, trigger, startedAt).lastInsertRowid;
+    try {
+      return await executeTaskInner(task, trigger, logId);
+    } catch (err) {
+      // 执行异常：日志标记失败并记录原因（修复：原初始 'failed' 导致执行中/异常中断均显示失败且无原因）
+      db()
+        .prepare(
+          `UPDATE execution_logs SET status = 'failed', finished_at = ?, duration_ms = ?,
+             cleanup_result = ? WHERE id = ?`
+        )
+        .run(new Date().toISOString(), Date.now() - new Date(startedAt).getTime(), JSON.stringify({ error: err?.message || String(err) }), logId);
+      try { tasks.setLastRun(task.id, new Date().toISOString(), 'failed'); } catch { /* 尽力而为 */ }
+      throw err;
+    }
   }
 
   /* ---------------- 立即执行清理 ---------------- */

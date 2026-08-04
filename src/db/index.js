@@ -2,7 +2,7 @@
  * db/index.js — SQLite 数据访问层
  *
  * - 单例连接（WAL 模式），业务层不直接写 SQL，统一经 repository 方法
- * - schema 迁移：settings.schema_version + 启动时顺序迁移（MVP 仅 v1）
+ * - schema 迁移：settings.schema_version + 启动时顺序迁移（v1 初始结构 / v2 日志状态加 running）
  * - 表结构见 系统架构设计_Architecture.md 4.2
  */
 
@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import config from '../config.js';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const MIGRATIONS = [
   // v1：初始表结构（10 张表）
@@ -76,7 +76,7 @@ const MIGRATIONS = [
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER,
     trigger TEXT NOT NULL CHECK (trigger IN ('cron','manual','cleanup')),
-    status TEXT NOT NULL CHECK (status IN ('success','partial','failed','skipped')),
+    status TEXT NOT NULL CHECK (status IN ('success','partial','failed','skipped','running')),
     space_check TEXT,
     started_at TEXT NOT NULL,
     finished_at TEXT,
@@ -120,6 +120,28 @@ const MIGRATIONS = [
     updated_at TEXT NOT NULL
   );
   `,
+  // v2：execution_logs.status CHECK 增加 'running'（执行中状态，修复执行中显示失败 bug）
+  // -- fk-off（重建表需临时关闭外键；PRAGMA foreign_keys 不能在事务内切换，故在迁移事务外开关）
+  `CREATE TABLE execution_logs_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER,
+    trigger TEXT NOT NULL CHECK (trigger IN ('cron','manual','cleanup')),
+    status TEXT NOT NULL CHECK (status IN ('success','partial','failed','skipped','running')),
+    space_check TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    duration_ms INTEGER,
+    total_images INTEGER NOT NULL DEFAULT 0,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    fail_count INTEGER NOT NULL DEFAULT 0,
+    cleanup_result TEXT
+  );
+  INSERT INTO execution_logs_new (id, task_id, trigger, status, space_check, started_at, finished_at, duration_ms, total_images, success_count, fail_count, cleanup_result)
+    SELECT id, task_id, trigger, status, space_check, started_at, finished_at, duration_ms, total_images, success_count, fail_count, cleanup_result FROM execution_logs;
+  DROP TABLE execution_logs;
+  ALTER TABLE execution_logs_new RENAME TO execution_logs;
+  CREATE INDEX IF NOT EXISTS idx_execution_logs_task ON execution_logs(task_id, started_at DESC);
+  `,
 ];
 
 let _db = null;
@@ -143,14 +165,18 @@ function migrate(db) {
   const row = db.prepare(`SELECT value FROM settings WHERE key = 'schema_version'`).get();
   const current = row ? Number.parseInt(row.value, 10) : 0;
   for (let v = current; v < SCHEMA_VERSION; v++) {
+    const sql = MIGRATIONS[v];
+    const needsFkOff = sql.includes('-- fk-off');
+    if (needsFkOff) db.pragma('foreign_keys = OFF');
     const tx = db.transaction(() => {
-      db.exec(MIGRATIONS[v]);
+      db.exec(sql);
       db.prepare(
         `INSERT INTO settings (key, value) VALUES ('schema_version', ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`
       ).run(String(v + 1));
     });
     tx();
+    if (needsFkOff) db.pragma('foreign_keys = ON');
   }
 }
 
