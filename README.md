@@ -50,13 +50,15 @@ cp configs/.env.example .env
 # 编辑 .env：必填 APP_SECRET_KEY=<上一步输出>；按需调整 TZ（建议 Asia/Shanghai）、WEB_PORT 等
 ```
 
-### 3. 构建并启动
+### 3. 启动
 
 ```bash
-docker compose up -d --build
-docker compose ps        # 等待 Up (healthy)
+docker compose up -d        # 直接使用已发布镜像 neostry/dockerhub-keepalive:latest，无需本地构建
+docker compose ps           # 等待 Up (healthy)
 curl http://127.0.0.1:8080/api/health   # 返回 {"ok":true}
 ```
+
+> 默认配置即可运行（`APP_SECRET_KEY`/`TZ`/`WEB_PORT` 三个变量）。如需调整登录限速、扫描上限、重试次数等，见下方「环境变量」表，按 `变量名: "${变量名:-默认值}"` 格式自行添加到 `docker-compose.yml` 的 `environment` 下（或写入 `.env`）。
 
 ### 4. 打开 WebUI 配置
 
@@ -92,6 +94,8 @@ curl http://127.0.0.1:8080/api/health   # 返回 {"ok":true}
 - 项目中**不硬编码任何敏感信息**；`.env` 已被 `.gitignore`/`.dockerignore` 排除，发布仓库与镜像中不含任何凭证
 
 ## 环境变量
+
+> `docker-compose.yml` 默认仅含 **`APP_SECRET_KEY` / `TZ` / `WEB_PORT`** 三个变量即可运行；下表其余变量为可选，需要时按 `变量名: "${变量名:-默认值}"` 格式自行添加到 compose 的 `environment` 下（或写入 `.env`）。
 
 | 变量 | 默认 | 必填 | 说明 |
 | ---- | ---- | ---- | ---- |
