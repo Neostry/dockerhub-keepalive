@@ -25,3 +25,10 @@ AGENTS.md
 .reasonix/
 .agents/
 .claude/
+
+# 本地运行库与配置（含 SQLite 数据库，禁止进入构建上下文）
+data/
+reasonix.toml
+
+# 工具缓存目录
+.playwright-mcp/
