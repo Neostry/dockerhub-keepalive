@@ -1,8 +1,5 @@
 # Docker Hub 镜像保活工具（dockerhub-keepalive）
 
-> 版本：1.0.0（2026-08-03 开源发布）
-> 功能描述以 PRD 与系统架构设计为准；详见项目说明书（项目内部管理文档，不随仓库发布）。
-
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/neostry/dockerhub-keepalive)](https://hub.docker.com/r/neostry/dockerhub-keepalive)
 <!-- 徽章占位（仓库转公开后补充）：GitHub Release / Stars / Forks（私有仓库 shields.io 无法读取） -->
