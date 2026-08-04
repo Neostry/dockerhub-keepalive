@@ -10,6 +10,7 @@ export const useStatusStore = defineStore('status', {
     nextRunAt: null,
     unreadCount: 0,
     totpEnabled: null,       // 可选字段：2FA 状态（契约补充，见前端实现说明）
+    version: '',             // 版本号：从 /api/status 动态读取（单源改造）
     loaded: false,
     timer: null
   }),
@@ -22,6 +23,7 @@ export const useStatusStore = defineStore('status', {
       this.nextRunAt = s.next_run_at ?? null
       this.unreadCount = s.unread_count || 0
       if (s.totp_enabled !== undefined) this.totpEnabled = !!s.totp_enabled
+      this.version = s.version || ''
       this.loaded = true
       return s
     },

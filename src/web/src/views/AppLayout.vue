@@ -70,7 +70,7 @@ async function doLogout() {
           <span v-if="!status.loginProtectionEnabled" class="tag tag-scan">免登录模式 · 外部访问控制保护</span>
         </div>
         <button v-if="status.loginProtectionEnabled" id="logoutBtn" class="btn btn-sm btn-danger" @click="doLogout">退出登录</button>
-        <div class="sf-ver">Docker Keepalive · v0.1.0</div>
+        <div class="sf-ver">Docker Keepalive · v{{ status.version || 'unknown' }}</div>
       </div>
     </aside>
     <div class="main">
