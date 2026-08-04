@@ -18,3 +18,10 @@ docker-compose.yml
 !.env.example
 *.md
 LICENSE
+
+# 模板体系管理文件（2026-08-03 结构升级：排除构建上下文）
+_vibe-coding/
+AGENTS.md
+.reasonix/
+.agents/
+.claude/

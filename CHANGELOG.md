@@ -39,7 +39,7 @@
 
 ### Fixed
 
-- （首发版本，无修复项；开发期 P0/P2/P3 问题均已关闭，见 docs/07_测试与质量/问题清单_Bug_List.md）
+- （首发版本，无修复项；开发期 P0/P2/P3 问题均已关闭，见 _vibe-coding/docs/07_测试与质量/问题清单_Bug_List.md）
 
 ### Security
 

@@ -1,7 +1,7 @@
 # Docker Hub 镜像保活工具（dockerhub-keepalive）
 
 > 版本：1.0.0（2026-08-03 开源发布）
-> 功能描述以 PRD 与系统架构设计为准；详见 [项目说明书](docs/01_产品/项目说明书_Project_Overview.md)。
+> 功能描述以 PRD 与系统架构设计为准；详见项目说明书（项目内部管理文档，不随仓库发布）。
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/neostry/dockerhub-keepalive)](https://hub.docker.com/r/neostry/dockerhub-keepalive)
@@ -32,7 +32,7 @@ Docker Hub 对 **90 天内无人 pull 的镜像**存在下架风险。许多开�
 
 ## 快速开始
 
-> 完整部署说明（含故障排查/回滚）见 [部署文档](docs/08_部署与运维/部署文档_Deployment.md)。
+> 完整部署说明（含故障排查/回滚）见部署文档（项目内部管理文档，不随仓库发布）；快速开始见下文。
 
 **前置条件**：Linux VPS 已安装 Docker Engine 与 Docker Compose v2；建议 2GB+ 可用磁盘。
 
@@ -112,19 +112,13 @@ curl http://127.0.0.1:8080/api/health   # 返回 {"ok":true}
 | `NOTIFY_RETRIES` | 3 | | 通知重试次数 |
 | `SPACE_HEADROOM` | 1.1 | | 空间预检余量系数 |
 
-> 完整清单与补充可配项见 [部署文档 §4.1](docs/08_部署与运维/部署文档_Deployment.md) 与 [后端实现说明 §7](docs/06_开发与执行/后端实现说明_Backend_Implementation.md)。通知凭证（bot token / SMTP 密码）**不走环境变量**，在控制中心表单配置后加密入库。
+> 完整清单与补充可配项见部署文档 §4.1（完整文档为项目内部管理文档，不随开源仓库发布）与后端实现说明 §7。通知凭证（bot token / SMTP 密码）**不走环境变量**，在控制中心表单配置后加密入库。
 
 ## 文档
 
-| 文档 | 说明 |
-| ---- | ---- |
-| [项目说明书](docs/01_产品/项目说明书_Project_Overview.md) | 项目概述、功能总览、技术架构、安全设计 |
-| [产品需求文档 PRD](docs/01_产品/产品需求文档_PRD.md) | 功能需求 F1~F18（+F5a）与验收标准 |
-| [系统架构设计](docs/03_架构与技术/系统架构设计_Architecture.md) | 模块 A~E、API 契约、数据模型、加密设计 |
-| [API 文档](docs/06_开发与执行/API文档_API_Docs.md) | 全部 REST 接口契约 |
-| [部署文档](docs/08_部署与运维/部署文档_Deployment.md) | Docker compose 部署、环境变量、故障排查、回滚 |
-| [运维手册](docs/08_部署与运维/运维手册_Operations.md) | 数据备份、升级、监控、安全基线 |
-| [CHANGELOG](CHANGELOG.md) | 版本变更记录 |
+> 完整文档（项目说明书、PRD、系统架构设计、API 文档、部署文档、运维手册）为项目内部管理文档，不随本仓库发布；详见项目本地 `_vibe-coding/docs/`。本仓库聚焦代码、容器化与部署：`src/`（后端 + 前端）、`Dockerfile`、`docker-compose.yml`、`configs/.env.example`。
+
+[CHANGELOG](CHANGELOG.md) 记录版本变更。
 
 ## FAQ
 

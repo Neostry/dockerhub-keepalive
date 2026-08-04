@@ -16,3 +16,10 @@ outputs/
 
 # 本地环境配置（含本机路径，不公开）
 reasonix.toml
+
+# 模板体系管理文件（2026-08-03 结构升级：收进 _vibe-coding/，git 不跟踪）
+_vibe-coding/
+AGENTS.md
+
+# 运行数据（SQLite 数据库，含加密凭证，禁止入库）
+data/
