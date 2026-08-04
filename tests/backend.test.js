@@ -47,6 +47,11 @@ const mockDocker = {
   async restartContainer() {
     dockerCalls.push(['restart']);
   },
+  // isImageInUse 默认返回 false（不占用），测试中可覆盖
+  _inUseImages: new Set(),
+  async isImageInUse(ref) {
+    return this._inUseImages.has(ref);
+  },
 };
 
 const mockHub = {
@@ -675,5 +680,74 @@ describe('F9：仅拉最新 tag（username/未指定 tag）', () => {
     const pulls = dockerCalls.filter((c) => c[0] === 'pull');
     assert.equal(pulls.length, 1, 'image 型未指定 tag 应只拉最新');
     assert.equal(pulls[0][1], 'user/multi-tags:v3.0');
+  });
+});
+
+describe('BUG-07：镜像被容器占用时跳过 rmi', () => {
+  test('镜像被容器占用 → pull 成功 + rmi 跳过（status success，message 标注）', async () => {
+    const agentB = request.agent(app);
+    await agentB.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
+
+    // 创建 image 型任务
+    const created = await agentB.post('/api/tasks').send({
+      name: '占用测试', type: 'image', source: 'custom', images: ['library/busybox:latest'], cron_expr: '0 3 1 * *',
+    });
+    assert.equal(created.status, 201);
+    const id = created.body.id;
+
+    // 标记 library/busybox:latest 为"被容器占用"
+    mockDocker._inUseImages.add('library/busybox:latest');
+    dockerCalls.length = 0;
+
+    const run = await agentB.post(`/api/tasks/${id}/run`);
+    assert.equal(run.status, 202);
+    await new Promise((r) => setTimeout(r, 300));
+
+    // pull 应执行
+    const pulls = dockerCalls.filter((c) => c[0] === 'pull');
+    assert.equal(pulls.length, 1, 'pull 应执行');
+    assert.equal(pulls[0][1], 'library/busybox:latest');
+
+    // rmi 不应执行（被跳过）
+    const removes = dockerCalls.filter((c) => c[0] === 'remove');
+    assert.equal(removes.length, 0, 'rmi 应被跳过');
+
+    // 日志明细：pull success + rmi success（跳过标注）
+    const logs = await agentB.get('/api/logs');
+    const log = logs.body.items.find((l) => l.task_id === id);
+    assert.ok(log, '应有日志');
+    assert.equal(log.status, 'success');
+
+    const detail = await agentB.get(`/api/logs/${log.id}`);
+    const rmiItem = detail.body.items.find((it) => it.action === 'rmi');
+    assert.ok(rmiItem, '应有 rmi item（跳过记录）');
+    assert.equal(rmiItem.status, 'success');
+    assert.match(rmiItem.message, /跳过 rmi：镜像被容器占用/);
+
+    // 清理：移除占用标记
+    mockDocker._inUseImages.delete('library/busybox:latest');
+  });
+
+  test('镜像未被占用 → 正常 rmi', async () => {
+    const agentB = request.agent(app);
+    await agentB.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
+
+    const created = await agentB.post('/api/tasks').send({
+      name: '正常 rmi', type: 'image', source: 'custom', images: ['library/nginx:1.25'], cron_expr: '0 3 1 * *',
+    });
+    assert.equal(created.status, 201);
+    const id = created.body.id;
+
+    // 确保未被占用
+    mockDocker._inUseImages.clear();
+    dockerCalls.length = 0;
+
+    const run = await agentB.post(`/api/tasks/${id}/run`);
+    assert.equal(run.status, 202);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const removes = dockerCalls.filter((c) => c[0] === 'remove');
+    assert.equal(removes.length, 1, 'rmi 应正常执行');
+    assert.equal(removes[0][1], 'library/nginx:1.25');
   });
 });

@@ -187,6 +187,17 @@ export function createExecutor({ docker, dockerhub, sleep = notify.sleep } = {})
       const pullRes = await pullWithRetry(t);
       const pullMs = Date.now() - start;
       if (pullRes.ok) {
+        // pull 成功即保活成功，rmi 非必须——检查镜像是否被容器占用
+        let inUse = false;
+        try {
+          inUse = await docker.isImageInUse(refOf(t));
+        } catch {
+          // isImageInUse 异常时降级放行，仍尝试 rmi
+        }
+        if (inUse) {
+          insertLogItem(logId, t.repo, t.tag, 'rmi', 'success', '跳过 rmi：镜像被容器占用', 0, 0);
+          return { ok: true, error: null };
+        }
         const rmiStart = Date.now();
         const rmiRes = await rmiWithRetry(t);
         const rmiMs = Date.now() - rmiStart;

@@ -63,6 +63,10 @@ const mockDocker = {
   async restartContainer() {
     dockerCalls.push(['restart']);
   },
+  _inUseImages: new Set(),
+  async isImageInUse(ref) {
+    return this._inUseImages.has(ref);
+  },
 };
 
 const mockHub = {
