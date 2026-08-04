@@ -17,7 +17,7 @@ outputs/
 # 本地环境配置（含本机路径，不公开）
 reasonix.toml
 
-# 模板体系管理文件（2026-08-03 结构升级：收进 _vibe-coding/，git 不跟踪）
+# 项目内部管理目录（不跟踪）
 _vibe-coding/
 AGENTS.md
 

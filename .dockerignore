@@ -19,7 +19,7 @@ docker-compose.yml
 *.md
 LICENSE
 
-# 模板体系管理文件（2026-08-03 结构升级：排除构建上下文）
+# 项目内部管理目录（排除构建上下文）
 _vibe-coding/
 AGENTS.md
 .reasonix/
