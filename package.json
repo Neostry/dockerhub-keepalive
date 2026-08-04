@@ -1,6 +1,6 @@
 {
   "name": "dockerhub-keepalive",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Docker Hub 镜像保活工具——自动定时 pull 指定镜像完成保活，完成后自动删除释放空间，三通道通知",
   "type": "module",
   "private": true,

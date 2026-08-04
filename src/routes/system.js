@@ -6,12 +6,16 @@
  */
 
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import { Router } from 'express';
 import config from '../config.js';
 import * as settings from '../services/settings.js';
 import * as auth from '../services/auth.js';
 import * as logs from '../services/logs.js';
 import * as tasks from '../services/tasks.js';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../../package.json');
 
 export function createSystemRouter({ scheduler } = {}) {
   const router = Router();
@@ -37,6 +41,7 @@ export function createSystemRouter({ scheduler } = {}) {
       disk: { available_bytes: availableBytes },
       next_run_at: nextRunAt,
       unread_count: logs.unreadCount(),
+      version: pkg.version,
     });
   });
 
