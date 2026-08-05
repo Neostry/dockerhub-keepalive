@@ -65,6 +65,7 @@ const mockDocker = {
   },
   _inUseImages: new Set(),
   async isImageInUse(ref) {
+    dockerCalls.push(['inUseCheck', ref]);
     return this._inUseImages.has(ref);
   },
 };

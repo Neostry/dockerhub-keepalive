@@ -184,18 +184,22 @@ export function createExecutor({ docker, dockerhub, sleep = notify.sleep } = {})
 
     const itemResults = await processWithConcurrency(targets, concurrency, async (t) => {
       const start = Date.now();
+      // 方案 C：pull 前检查镜像是否被容器占用——此时 tag 仍指向旧镜像，
+      // listContainers(reference: tag) 可正确匹配所有使用该镜像的容器（自身/其他服务）。
+      // 注意：不能在 pull 后检查（pull 已更新 tag 指向新镜像 ID，容器仍用旧 ID → 不匹配 → rmi 409）
+      let wasInUse = false;
+      try {
+        wasInUse = await docker.isImageInUse(refOf(t));
+      } catch {
+        // isImageInUse 异常时降级放行，仍尝试 rmi
+      }
       const pullRes = await pullWithRetry(t);
       const pullMs = Date.now() - start;
       if (pullRes.ok) {
-        // pull 成功即保活成功，rmi 非必须——检查镜像是否被容器占用
-        let inUse = false;
-        try {
-          inUse = await docker.isImageInUse(refOf(t));
-        } catch {
-          // isImageInUse 异常时降级放行，仍尝试 rmi
-        }
-        if (inUse) {
-          insertLogItem(logId, t.repo, t.tag, 'rmi', 'success', '跳过 rmi：镜像被容器占用', 0, 0);
+        // pull 必须执行（刷新 Docker Hub 活跃度——保活核心），此处已成功
+        // rmi 用 pull 前的记录值判断（pull 后 tag 已更新，再查 isImageInUse 会不匹配）
+        if (wasInUse) {
+          insertLogItem(logId, t.repo, t.tag, 'rmi', 'success', '跳过 rmi：镜像被容器占用（pull 已刷新 Hub 活跃度）', 0, 0);
           return { ok: true, error: null };
         }
         const rmiStart = Date.now();

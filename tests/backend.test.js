@@ -47,9 +47,10 @@ const mockDocker = {
   async restartContainer() {
     dockerCalls.push(['restart']);
   },
-  // isImageInUse 默认返回 false（不占用），测试中可覆盖
+  // isImageInUse 默认返回 false（不占用），测试中可覆盖；记录调用顺序便于断言时机
   _inUseImages: new Set(),
   async isImageInUse(ref) {
+    dockerCalls.push(['inUseCheck', ref]);
     return this._inUseImages.has(ref);
   },
 };
@@ -425,7 +426,12 @@ describe('模块 C：执行链路（mock docker）', () => {
     // 等待队列异步执行完成（mock 立即完成）
     await new Promise((r) => setTimeout(r, 300));
 
-    assert.deepEqual(dockerCalls, [['pull', 'library/nginx:1.25'], ['remove', 'library/nginx:1.25']]);
+    // inUseCheck（pull 前）→ pull → rmi
+    assert.deepEqual(dockerCalls, [
+      ['inUseCheck', 'library/nginx:1.25'],
+      ['pull', 'library/nginx:1.25'],
+      ['remove', 'library/nginx:1.25'],
+    ]);
 
     // 日志
     const logs = await agent3.get('/api/logs');
@@ -683,19 +689,18 @@ describe('F9：仅拉最新 tag（username/未指定 tag）', () => {
   });
 });
 
-describe('BUG-07：镜像被容器占用时跳过 rmi', () => {
-  test('镜像被容器占用 → pull 成功 + rmi 跳过（status success，message 标注）', async () => {
+describe('BUG-07：镜像被容器占用时跳过 rmi（方案 C：pull 前检查）', () => {
+  test('其他容器占用 → pull 前检查命中 + pull 执行 + rmi 跳过（status success）', async () => {
     const agentB = request.agent(app);
     await agentB.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
 
-    // 创建 image 型任务
     const created = await agentB.post('/api/tasks').send({
       name: '占用测试', type: 'image', source: 'custom', images: ['library/busybox:latest'], cron_expr: '0 3 1 * *',
     });
     assert.equal(created.status, 201);
     const id = created.body.id;
 
-    // 标记 library/busybox:latest 为"被容器占用"
+    // 标记 library/busybox:latest 为"被其他容器占用"
     mockDocker._inUseImages.add('library/busybox:latest');
     dockerCalls.length = 0;
 
@@ -703,7 +708,14 @@ describe('BUG-07：镜像被容器占用时跳过 rmi', () => {
     assert.equal(run.status, 202);
     await new Promise((r) => setTimeout(r, 300));
 
-    // pull 应执行
+    // 检查时机：inUseCheck 必须在 pull 之前
+    const inUseIdx = dockerCalls.findIndex((c) => c[0] === 'inUseCheck');
+    const pullIdx = dockerCalls.findIndex((c) => c[0] === 'pull');
+    assert.ok(inUseIdx !== -1, '应调用 isImageInUse');
+    assert.ok(pullIdx !== -1, '应执行 pull');
+    assert.ok(inUseIdx < pullIdx, 'isImageInUse 应在 pull 之前调用（pull 前 tag 仍指向旧镜像）');
+
+    // pull 应执行（刷新 Hub 活跃度）
     const pulls = dockerCalls.filter((c) => c[0] === 'pull');
     assert.equal(pulls.length, 1, 'pull 应执行');
     assert.equal(pulls[0][1], 'library/busybox:latest');
@@ -712,7 +724,7 @@ describe('BUG-07：镜像被容器占用时跳过 rmi', () => {
     const removes = dockerCalls.filter((c) => c[0] === 'remove');
     assert.equal(removes.length, 0, 'rmi 应被跳过');
 
-    // 日志明细：pull success + rmi success（跳过标注）
+    // 日志明细：任务 status success + rmi item success（跳过标注）
     const logs = await agentB.get('/api/logs');
     const log = logs.body.items.find((l) => l.task_id === id);
     assert.ok(log, '应有日志');
@@ -722,13 +734,43 @@ describe('BUG-07：镜像被容器占用时跳过 rmi', () => {
     const rmiItem = detail.body.items.find((it) => it.action === 'rmi');
     assert.ok(rmiItem, '应有 rmi item（跳过记录）');
     assert.equal(rmiItem.status, 'success');
-    assert.match(rmiItem.message, /跳过 rmi：镜像被容器占用/);
+    assert.match(rmiItem.message, /跳过 rmi：镜像被容器占用（pull 已刷新 Hub 活跃度）/);
 
     // 清理：移除占用标记
     mockDocker._inUseImages.delete('library/busybox:latest');
   });
 
-  test('镜像未被占用 → 正常 rmi', async () => {
+  test('自身容器占用（isImageInUse 命中）→ 同样跳过 rmi，pull 正常执行', async () => {
+    const agentB = request.agent(app);
+    await agentB.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
+
+    const created = await agentB.post('/api/tasks').send({
+      name: '自身镜像测试', type: 'image', source: 'custom', images: ['library/busybox:latest'], cron_expr: '0 3 1 * *',
+    });
+    assert.equal(created.status, 201);
+    const id = created.body.id;
+
+    // 自身镜像同样通过 isImageInUse 命中（容器当然引用自身镜像）
+    mockDocker._inUseImages.add('library/busybox:latest');
+    dockerCalls.length = 0;
+
+    const run = await agentB.post(`/api/tasks/${id}/run`);
+    assert.equal(run.status, 202);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const pulls = dockerCalls.filter((c) => c[0] === 'pull');
+    assert.equal(pulls.length, 1, 'pull 应执行');
+    const removes = dockerCalls.filter((c) => c[0] === 'remove');
+    assert.equal(removes.length, 0, 'rmi 应被跳过');
+
+    const logs = await agentB.get('/api/logs');
+    const log = logs.body.items.find((l) => l.task_id === id);
+    assert.equal(log.status, 'success');
+
+    mockDocker._inUseImages.delete('library/busybox:latest');
+  });
+
+  test('无容器占用 → 正常 rmi', async () => {
     const agentB = request.agent(app);
     await agentB.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
 
@@ -745,6 +787,11 @@ describe('BUG-07：镜像被容器占用时跳过 rmi', () => {
     const run = await agentB.post(`/api/tasks/${id}/run`);
     assert.equal(run.status, 202);
     await new Promise((r) => setTimeout(r, 300));
+
+    // 检查时机：inUseCheck 在 pull 前
+    const inUseIdx = dockerCalls.findIndex((c) => c[0] === 'inUseCheck');
+    const pullIdx = dockerCalls.findIndex((c) => c[0] === 'pull');
+    assert.ok(inUseIdx !== -1 && inUseIdx < pullIdx, 'isImageInUse 应在 pull 之前调用');
 
     const removes = dockerCalls.filter((c) => c[0] === 'remove');
     assert.equal(removes.length, 1, 'rmi 应正常执行');
