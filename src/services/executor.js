@@ -204,6 +204,8 @@ export function createExecutor({ docker, dockerhub, sleep = notify.sleep } = {})
         const rmiRes = await rmiWithRetry(t);
         const rmiMs = Date.now() - rmiStart;
         if (rmiRes.skipped) {
+          // 先补写 pull 日志（与正常分支结构一致），再写 rmi 跳过日志
+          insertLogItem(logId, t.repo, t.tag, 'pull', 'success', null, pullRes.retries, pullMs);
           insertLogItem(logId, t.repo, t.tag, 'rmi', 'success', '跳过 rmi：镜像被容器占用（pull 已刷新 Hub 活跃度）', rmiRes.retries, rmiMs);
           return { ok: true, error: null };
         }

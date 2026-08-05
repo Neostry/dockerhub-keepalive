@@ -730,6 +730,14 @@ describe('BUG-07：镜像被容器占用时跳过 rmi（方案 G：直接处理 
     assert.equal(rmiItem.status, 'success');
     assert.match(rmiItem.message, /跳过 rmi：镜像被容器占用（pull 已刷新 Hub 活跃度）/);
 
+    // 日志明细应同时含 pull success + rmi 跳过两条（修复：skipped 分支补写 pull 日志）
+    const pullItem = detail.body.items.find((it) => it.action === 'pull');
+    assert.ok(pullItem, '应有 pull item');
+    assert.equal(pullItem.status, 'success');
+    assert.equal(pullItem.repo, 'library/busybox');
+    assert.equal(pullItem.tag, 'latest');
+    assert.equal(detail.body.items.length, 2, 'pull + rmi 两条明细');
+
     // 清理
     mockDocker._rmiConflictRefs.delete('library/busybox:latest');
   });
