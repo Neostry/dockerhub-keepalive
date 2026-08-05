@@ -127,11 +127,22 @@ export function createExecutor({ docker, dockerhub, sleep = notify.sleep } = {})
         await docker.remove(refOf(t));
         return { ok: true, retries: attempt };
       } catch (err) {
+        // 方案 G：镜像被容器占用（409 conflict）不算失败——pull 已刷新 Hub 活跃度即保活成功，
+        // 立即返回 skipped（不重试、不计失败）。其他错误维持原有重试逻辑。
+        if (isConflictError(err)) {
+          return { ok: true, skipped: true, error: err?.message || 'rmi 409 conflict', retries: attempt };
+        }
         lastErr = err;
         if (attempt < retries) await sleep(config.pullRetryBaseMs * 3 ** attempt);
       }
     }
     return { ok: false, error: lastErr?.message || 'rmi 失败', retries };
+  }
+
+  /** 判定 rmi 409 conflict（镜像被容器引用）：匹配真实 Docker 错误信息 */
+  function isConflictError(err) {
+    const msg = String(err?.message || err || '');
+    return /409|conflict|is using its referenced image|must be forced/.test(msg);
   }
 
   /** 受控并发处理（默认并发 1；空间充足自动升 3） */
@@ -184,27 +195,18 @@ export function createExecutor({ docker, dockerhub, sleep = notify.sleep } = {})
 
     const itemResults = await processWithConcurrency(targets, concurrency, async (t) => {
       const start = Date.now();
-      // 方案 C：pull 前检查镜像是否被容器占用——此时 tag 仍指向旧镜像，
-      // listContainers(reference: tag) 可正确匹配所有使用该镜像的容器（自身/其他服务）。
-      // 注意：不能在 pull 后检查（pull 已更新 tag 指向新镜像 ID，容器仍用旧 ID → 不匹配 → rmi 409）
-      let wasInUse = false;
-      try {
-        wasInUse = await docker.isImageInUse(refOf(t));
-      } catch {
-        // isImageInUse 异常时降级放行，仍尝试 rmi
-      }
       const pullRes = await pullWithRetry(t);
       const pullMs = Date.now() - start;
       if (pullRes.ok) {
         // pull 必须执行（刷新 Docker Hub 活跃度——保活核心），此处已成功
-        // rmi 用 pull 前的记录值判断（pull 后 tag 已更新，再查 isImageInUse 会不匹配）
-        if (wasInUse) {
-          insertLogItem(logId, t.repo, t.tag, 'rmi', 'success', '跳过 rmi：镜像被容器占用（pull 已刷新 Hub 活跃度）', 0, 0);
-          return { ok: true, error: null };
-        }
+        // rmi：409 conflict（镜像被容器占用）由 rmiWithRetry 识别为 skipped，不算失败
         const rmiStart = Date.now();
         const rmiRes = await rmiWithRetry(t);
         const rmiMs = Date.now() - rmiStart;
+        if (rmiRes.skipped) {
+          insertLogItem(logId, t.repo, t.tag, 'rmi', 'success', '跳过 rmi：镜像被容器占用（pull 已刷新 Hub 活跃度）', rmiRes.retries, rmiMs);
+          return { ok: true, error: null };
+        }
         insertLogItem(logId, t.repo, t.tag, 'pull', pullRes.ok ? 'success' : 'failed', null, pullRes.retries, pullMs);
         insertLogItem(logId, t.repo, t.tag, 'rmi', rmiRes.ok ? 'success' : 'failed', rmiRes.ok ? null : rmiRes.error, rmiRes.retries, rmiMs);
         return { ok: rmiRes.ok, error: rmiRes.error };

@@ -46,17 +46,7 @@ export function createDockerClient({ socketPath = config.dockerSocket, DockerImp
     return docker.df();
   }
 
-  /** 查询镜像是否被容器使用（运行中或已停止）；查询异常时返回 false 降级放行 */
-  async function isImageInUse(imageRef) {
-    try {
-      const containers = await docker.listContainers({ all: true, filters: { reference: [imageRef] } });
-      return containers.length > 0;
-    } catch {
-      return false;
-    }
-  }
-
-  return { docker, pull, remove, pruneDangling, restartContainer, df, isImageInUse };
+  return { docker, pull, remove, pruneDangling, restartContainer, df };
 }
 
 export default createDockerClient();

@@ -55,6 +55,10 @@ const mockDocker = {
   },
   async remove(ref) {
     dockerCalls.push(['remove', ref]);
+    // 409 conflict 模拟：该 ref 被容器占用（Docker 真实错误格式）
+    if (mockDocker._rmiConflictRefs.has(ref)) {
+      throw new Error(`(HTTP code 409) conflict - unable to delete ${ref} (must be forced) - image is being used by running container`);
+    }
   },
   async pruneDangling() {
     dockerCalls.push(['prune']);
@@ -63,11 +67,8 @@ const mockDocker = {
   async restartContainer() {
     dockerCalls.push(['restart']);
   },
-  _inUseImages: new Set(),
-  async isImageInUse(ref) {
-    dockerCalls.push(['inUseCheck', ref]);
-    return this._inUseImages.has(ref);
-  },
+  // rmi 409 conflict 模拟：set 中 ref 的 remove 抛 conflict 错误
+  _rmiConflictRefs: new Set(),
 };
 
 const mockHub = {

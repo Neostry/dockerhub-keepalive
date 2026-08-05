@@ -39,6 +39,10 @@ const mockDocker = {
   },
   async remove(ref) {
     dockerCalls.push(['remove', ref]);
+    // 409 conflict 模拟：该 ref 被容器占用（Docker 真实错误格式）
+    if (mockDocker._rmiConflictRefs.has(ref)) {
+      throw new Error(`(HTTP code 409) conflict - unable to delete ${ref} (must be forced) - image is being used by running container`);
+    }
   },
   async pruneDangling() {
     dockerCalls.push(['prune']);
@@ -47,12 +51,8 @@ const mockDocker = {
   async restartContainer() {
     dockerCalls.push(['restart']);
   },
-  // isImageInUse 默认返回 false（不占用），测试中可覆盖；记录调用顺序便于断言时机
-  _inUseImages: new Set(),
-  async isImageInUse(ref) {
-    dockerCalls.push(['inUseCheck', ref]);
-    return this._inUseImages.has(ref);
-  },
+  // rmi 409 conflict 模拟：set 中 ref 的 remove 抛 conflict 错误
+  _rmiConflictRefs: new Set(),
 };
 
 const mockHub = {
@@ -426,9 +426,8 @@ describe('模块 C：执行链路（mock docker）', () => {
     // 等待队列异步执行完成（mock 立即完成）
     await new Promise((r) => setTimeout(r, 300));
 
-    // inUseCheck（pull 前）→ pull → rmi
+    // pull → rmi（方案 G 无预检查）
     assert.deepEqual(dockerCalls, [
-      ['inUseCheck', 'library/nginx:1.25'],
       ['pull', 'library/nginx:1.25'],
       ['remove', 'library/nginx:1.25'],
     ]);
@@ -689,8 +688,8 @@ describe('F9：仅拉最新 tag（username/未指定 tag）', () => {
   });
 });
 
-describe('BUG-07：镜像被容器占用时跳过 rmi（方案 C：pull 前检查）', () => {
-  test('其他容器占用 → pull 前检查命中 + pull 执行 + rmi 跳过（status success）', async () => {
+describe('BUG-07：镜像被容器占用时跳过 rmi（方案 G：直接处理 409 conflict）', () => {
+  test('rmi 409 conflict → 任务 success + rmi item success + 跳过标注 + 不重试', async () => {
     const agentB = request.agent(app);
     await agentB.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
 
@@ -700,47 +699,42 @@ describe('BUG-07：镜像被容器占用时跳过 rmi（方案 C：pull 前检�
     assert.equal(created.status, 201);
     const id = created.body.id;
 
-    // 标记 library/busybox:latest 为"被其他容器占用"
-    mockDocker._inUseImages.add('library/busybox:latest');
+    // 模拟 library/busybox:latest 的 remove 抛 409 conflict（Docker 真实错误格式）
+    mockDocker._rmiConflictRefs.add('library/busybox:latest');
     dockerCalls.length = 0;
 
     const run = await agentB.post(`/api/tasks/${id}/run`);
     assert.equal(run.status, 202);
     await new Promise((r) => setTimeout(r, 300));
 
-    // 检查时机：inUseCheck 必须在 pull 之前
-    const inUseIdx = dockerCalls.findIndex((c) => c[0] === 'inUseCheck');
-    const pullIdx = dockerCalls.findIndex((c) => c[0] === 'pull');
-    assert.ok(inUseIdx !== -1, '应调用 isImageInUse');
-    assert.ok(pullIdx !== -1, '应执行 pull');
-    assert.ok(inUseIdx < pullIdx, 'isImageInUse 应在 pull 之前调用（pull 前 tag 仍指向旧镜像）');
-
     // pull 应执行（刷新 Hub 活跃度）
     const pulls = dockerCalls.filter((c) => c[0] === 'pull');
     assert.equal(pulls.length, 1, 'pull 应执行');
     assert.equal(pulls[0][1], 'library/busybox:latest');
 
-    // rmi 不应执行（被跳过）
+    // rmi 被尝试 1 次（409 命中即返回 skipped，不重试）
     const removes = dockerCalls.filter((c) => c[0] === 'remove');
-    assert.equal(removes.length, 0, 'rmi 应被跳过');
+    assert.equal(removes.length, 1, 'rmi 尝试 1 次（不重试）');
+    assert.equal(removes[0][1], 'library/busybox:latest');
 
-    // 日志明细：任务 status success + rmi item success（跳过标注）
+    // 任务整体 success（409 不算失败）
     const logs = await agentB.get('/api/logs');
     const log = logs.body.items.find((l) => l.task_id === id);
     assert.ok(log, '应有日志');
     assert.equal(log.status, 'success');
 
+    // rmi item：status success + message 跳过标注
     const detail = await agentB.get(`/api/logs/${log.id}`);
     const rmiItem = detail.body.items.find((it) => it.action === 'rmi');
     assert.ok(rmiItem, '应有 rmi item（跳过记录）');
     assert.equal(rmiItem.status, 'success');
     assert.match(rmiItem.message, /跳过 rmi：镜像被容器占用（pull 已刷新 Hub 活跃度）/);
 
-    // 清理：移除占用标记
-    mockDocker._inUseImages.delete('library/busybox:latest');
+    // 清理
+    mockDocker._rmiConflictRefs.delete('library/busybox:latest');
   });
 
-  test('自身容器占用（isImageInUse 命中）→ 同样跳过 rmi，pull 正常执行', async () => {
+  test('自身容器占用（rmi 409）→ 同样跳过 rmi，pull 正常执行', async () => {
     const agentB = request.agent(app);
     await agentB.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
 
@@ -750,8 +744,8 @@ describe('BUG-07：镜像被容器占用时跳过 rmi（方案 C：pull 前检�
     assert.equal(created.status, 201);
     const id = created.body.id;
 
-    // 自身镜像同样通过 isImageInUse 命中（容器当然引用自身镜像）
-    mockDocker._inUseImages.add('library/busybox:latest');
+    // 自身镜像同样在 remove 时触发 409（容器当然引用自身镜像）
+    mockDocker._rmiConflictRefs.add('library/busybox:latest');
     dockerCalls.length = 0;
 
     const run = await agentB.post(`/api/tasks/${id}/run`);
@@ -761,16 +755,16 @@ describe('BUG-07：镜像被容器占用时跳过 rmi（方案 C：pull 前检�
     const pulls = dockerCalls.filter((c) => c[0] === 'pull');
     assert.equal(pulls.length, 1, 'pull 应执行');
     const removes = dockerCalls.filter((c) => c[0] === 'remove');
-    assert.equal(removes.length, 0, 'rmi 应被跳过');
+    assert.equal(removes.length, 1, 'rmi 尝试 1 次（409 命中跳过）');
 
     const logs = await agentB.get('/api/logs');
     const log = logs.body.items.find((l) => l.task_id === id);
     assert.equal(log.status, 'success');
 
-    mockDocker._inUseImages.delete('library/busybox:latest');
+    mockDocker._rmiConflictRefs.delete('library/busybox:latest');
   });
 
-  test('无容器占用 → 正常 rmi', async () => {
+  test('无占用（remove 正常）→ 正常 rmi', async () => {
     const agentB = request.agent(app);
     await agentB.post('/api/auth/login').send({ username: 'admin', password: 'admin123' });
 
@@ -780,18 +774,13 @@ describe('BUG-07：镜像被容器占用时跳过 rmi（方案 C：pull 前检�
     assert.equal(created.status, 201);
     const id = created.body.id;
 
-    // 确保未被占用
-    mockDocker._inUseImages.clear();
+    // 确保无 conflict
+    mockDocker._rmiConflictRefs.clear();
     dockerCalls.length = 0;
 
     const run = await agentB.post(`/api/tasks/${id}/run`);
     assert.equal(run.status, 202);
     await new Promise((r) => setTimeout(r, 300));
-
-    // 检查时机：inUseCheck 在 pull 前
-    const inUseIdx = dockerCalls.findIndex((c) => c[0] === 'inUseCheck');
-    const pullIdx = dockerCalls.findIndex((c) => c[0] === 'pull');
-    assert.ok(inUseIdx !== -1 && inUseIdx < pullIdx, 'isImageInUse 应在 pull 之前调用');
 
     const removes = dockerCalls.filter((c) => c[0] === 'remove');
     assert.equal(removes.length, 1, 'rmi 应正常执行');
